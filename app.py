@@ -15,21 +15,21 @@ with col_menu:
     
     saldo_devedor_atual = st.number_input(
         "Saldo Devedor Atual (R$)", 
-        min_value=0.0, value=326900.00, step=5000.0, format="%.2f"
+        min_value=0.0, value=250000.00, step=5000.0, format="%.2f"
     )
     
     taxa_anual_input = st.number_input(
         "Taxa de Juros Anual (%)", 
-        min_value=0.0, max_value=100.0, value=10.0, step=0.1, format="%.2f"
+        min_value=0.0, max_value=100.0, value=9.5, step=0.1, format="%.2f"
     )
     
     prazo_restante = st.number_input(
         "Meses Restantes", 
-        min_value=1, max_value=420, value=420, step=1
+        min_value=1, max_value=420, value=300, step=1
     )
     
     st.markdown("#### 🛡️ Taxas e Seguros Mensais")
-    st.caption("A Caixa embuti estes valores fixos/proporcionais na sua parcela real:")
+    st.caption("A Caixa embute estes valores fixos/proporcionais na sua parcela real:")
     
     seguro_mip = st.number_input("Seguro MIP (Morte/Invalidez) - R$", min_value=0.0, value=45.00, step=5.0)
     seguro_dfi = st.number_input("Seguro DFI (Danos ao Imóvel) - R$", min_value=0.0, value=15.00, step=5.0)
@@ -44,17 +44,18 @@ with col_menu:
         "Onde aplicar a amortização?",
         ["Reduzir o Prazo (Tempo)", "Reduzir a Parcela (Valor mensal)"]
     )
-valor_amortizar_hoje = st.number_input(
+    
+    valor_amortizar_hoje = st.number_input(
         "Aporte Único Hoje (R$)", 
         min_value=0.0, value=5000.0, step=500.0, format="%.2f"
     )
     
-    # CORREÇÃO AQUI: Passamos a explicação para o argumento 'help'
     valor_recorrente_mes = st.number_input(
         "Aporte Mensal Recorrente (R$)",
         help="Valor extra que pretende pagar todo mês além da parcela",
         min_value=0.0, value=500.0, step=100.0, format="%.2f"
     )
+
 # --- Processamento Matemático ---
 taxa_mensal = (taxa_anual_input / 100) / 12
 
