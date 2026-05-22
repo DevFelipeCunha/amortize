@@ -44,18 +44,17 @@ with col_menu:
         "Onde aplicar a amortização?",
         ["Reduzir o Prazo (Tempo)", "Reduzir a Parcela (Valor mensal)"]
     )
-    
-    valor_amortizar_hoje = st.number_input(
+valor_amortizar_hoje = st.number_input(
         "Aporte Único Hoje (R$)", 
         min_value=0.0, value=5000.0, step=500.0, format="%.2f"
     )
     
+    # CORREÇÃO AQUI: Passamos a explicação para o argumento 'help'
     valor_recorrente_mes = st.number_input(
-        "Aporte Mensal Recorrente (R$)", 
-        st.caption("Valor extra que pretende pagar todo mês além da parcela"),
+        "Aporte Mensal Recorrente (R$)",
+        help="Valor extra que pretende pagar todo mês além da parcela",
         min_value=0.0, value=500.0, step=100.0, format="%.2f"
     )
-
 # --- Processamento Matemático ---
 taxa_mensal = (taxa_anual_input / 100) / 12
 
