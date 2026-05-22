@@ -1,7 +1,6 @@
 import streamlit as st
 import math
 import pandas as pd
-import io
 
 st.set_page_config(page_title="Simulador Caixa Habitação", layout="wide")
 st.title("🏠 Simulador de Amortização Imobiliária")
@@ -83,8 +82,8 @@ if valor_amortizar > 0 and pmt_original > 0:
 
 parcelas_eliminadas = prazo_restante - novo_prazo_estimado
 
-# Função para gerar a tabela mês a mês da nova realidade
-def gerar_fluxo(saldo_ini, meses, pmt_base, taxa):
+# Função simplificada apenas para alimentar o gráfico de linha com segurança
+def gerar_saldos_grafico(saldo_ini, meses, pmt_base, taxa):
     saldo = saldo_ini
     historico = []
     for mes in range(1, meses + 1):
@@ -92,22 +91,13 @@ def gerar_fluxo(saldo_ini, meses, pmt_base, taxa):
         juros_mes = saldo * taxa
         pmt_atual = pmt_base if pmt_base < (saldo + juros_mes) else (saldo + juros_mes)
         amortizacao_tabela = pmt_atual - juros_mes
-        
-        if saldo - amortizacao_tabela <= 0:
-            amortizacao_tabela = saldo
-            saldo = 0.0
-        else:
-            saldo -= amortizacao_tabela
-            
-        historico.append({
-            "Mês": mes, "Parcela Pura": pmt_atual, "Taxas/Seguros": taxas_somadas,
-            "Total Pago": pmt_atual + taxas_somadas, "Amortização": amortizacao_tabela,
-            "Juros": juros_mes, "Saldo Devedor": saldo
-        })
+        saldo = max(0.0, saldo - amortizacao_tabela)
+        historico.append({"Mês": mes, "Saldo Devedor": saldo})
     return pd.DataFrame(historico)
 
-df_original = gerar_fluxo(saldo_devedor_atual, prazo_restante, pmt_original, taxa_mensal)
-df_simulado = gerar_fluxo(novo_saldo, novo_prazo_estimado, nova_pmt, taxa_mensal)
+# Gera dados para o gráfico de linhas
+df_original = gerar_saldos_grafico(saldo_devedor_atual, prazo_restante, pmt_original, taxa_mensal)
+df_simulado = gerar_saldos_grafico(novo_saldo, novo_prazo_estimado, nova_pmt, taxa_mensal)
 
 # --- Painel de Resultados (Direita) ---
 with col_Painel:
@@ -124,9 +114,10 @@ with col_Painel:
     st.markdown("---")
     st.markdown("### 📊 Diagnóstico Financeiro")
     
-    juros_total_original = df_original["Juros"].sum() if not df_original.empty else 0.0
-    juros_total_simulado = df_simulado["Juros"].sum() if not df_simulado.empty else 0.0
-    economia_juros = max(0.0, juros_total_original - juros_total_simulado)
+    # Estimativa simples de economia de juros baseada no saldo e prestações
+    juros_estimados_orig = (pmt_original * prazo_restante) - saldo_devedor_atual
+    juros_estimados_sim = (nova_pmt * novo_prazo_estimado) - novo_saldo
+    economia_juros = max(0.0, juros_estimados_orig - juros_estimados_sim)
     
     m1, m2 = st.columns(2)
     m1.metric("Próxima Parcela Total", f"R$ {nova_pmt + taxas_somadas:,.2f}", 
@@ -134,28 +125,18 @@ with col_Painel:
               delta_color="inverse")
     m2.metric("Economia Estimada de Juros", f"R$ {economia_juros:,.2f}")
     
+    st.info(f"📋 **Nota sobre encargos:** O valor da parcela inclui uma estimativa de R$ {taxas_somadas:,.2f} referente a seguros (MIP/DFI) e taxa de administração de contrato da Caixa.")
+    
     # Gráfico de Evolução
     st.markdown("---")
     st.markdown("### 📈 Curva de Queda da Dívida")
-    df_grafico = pd.DataFrame(index=range(1, prazo_restante + 1))
-    df_grafico["Contrato Original"] = df_original.set_index("Mês")["Saldo Devedor"]
-    df_grafico["Com Amortização"] = df_simulado.set_index("Mês")["Saldo Devedor"]
-    df_grafico.fillna(0, inplace=True)
-    st.line_chart(df_grafico)
     
-    # Tabela detalhada
-    st.markdown("---")
-    st.markdown("### 📋 Projeção Detalhada do Novo Cenário")
-    
-    if not df_simulado.empty:
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df_simulado.to_excel(writer, index=False, sheet_name="Simulacao")
-        buffer.seek(0)
-        
-        st.download_button(label="📥 Exportar Projeção para Excel", data=buffer, file_name="amortizacao.xlsx")
-        
-        df_visual = df_simulado.copy()
-        for col in ["Parcela Pura", "Taxas/Seguros", "Total Pago", "Amortização", "Juros", "Saldo Devedor"]:
-            df_visual[col] = df_visual[col].map("R$ {:,.2f}".format)
-        st.dataframe(df_visual, use_container_width=True, hide_index=True)
+    if not df_original.empty:
+        df_grafico = pd.DataFrame(index=range(1, prazo_restante + 1))
+        df_grafico["Contrato Original"] = df_original.set_index("Mês")["Saldo Devedor"]
+        if not df_simulado.empty:
+            df_grafico["Com Amortização"] = df_simulado.set_index("Mês")["Saldo Devedor"]
+        df_grafico.fillna(0, inplace=True)
+        st.line_chart(df_grafico)
+    else:
+        st.caption("Insira os dados do contrato para renderizar o gráfico.")
