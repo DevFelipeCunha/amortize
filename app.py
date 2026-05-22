@@ -1,45 +1,23 @@
 import streamlit as st
-import requests
 import math
 import pandas as pd
 
-# Configuração da URL do seu Apps Script publicado
-GAS_URL = "SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI"
-
-st.set_page_config(page_title="Simulador de Amortização Caixa - Price", layout="centered")
+st.set_page_config(page_title="Simulador de Amortização - Tabela Price", layout="centered")
 st.title("🏠 Simulador de Amortização Imobiliária")
 st.subheader("Padrão Caixa Habitação (Tabela Price)")
 
-# --- BUSCA AUTOMÁTICA DOS DADOS (GOOGLE SHEETS) ---
-# Inicializa variáveis com valores padrão de segurança (fallback)
-saldo_base = 250000.00
-taxa_base = 9.5
-prazo_base = 300
-
-try:
-    # Tenta conectar com o Google Sheets
-    response = requests.get(GAS_URL, timeout=5)
-    if response.status_code == 200:
-        data = response.json()
-        saldo_base = float(data["saldoDevedor"])
-        taxa_base = float(data["taxaJurosAnual"])
-        prazo_base = int(data["mesesRestantes"])
-        st.success("🔄 Dados sincronizados com o Google Sheets com sucesso!")
-except Exception as e:
-    st.sidebar.warning("⚠️ Executando localmente: Não foi possível conectar ao Google Sheets (Usando valores padrão).")
-
-# --- CRIAÇÃO DOS CAMPOS NA PÁGINA ---
+# --- CRIAÇÃO DOS CAMPOS DIRETO NA PÁGINA ---
 st.markdown("### 📋 Configuração do Contrato")
-st.caption("Altere os valores abaixo para ajustar o saldo puxado da planilha ou simular do zero:")
+st.caption("Insira os dados atuais do seu financiamento para calcular a estrutura de parcelas:")
 
-# Organiza os campos lado a lado em 3 colunas
+# Organiza os inputs em 3 colunas lado a lado
 c1, c2, c3 = st.columns(3)
 
 with c1:
     saldo_devedor_atual = st.number_input(
         "Saldo Devedor Atual (R$)", 
         min_value=0.0, 
-        value=saldo_base, 
+        value=250000.00,  # Valor padrão inicial
         step=1000.0,
         format="%.2f"
     )
@@ -49,7 +27,7 @@ with c2:
         "Taxa de Juros Anual (%)", 
         min_value=0.0, 
         max_value=100.0, 
-        value=taxa_base, 
+        value=9.5,       # Taxa padrão inicial (9.5% a.a.)
         step=0.1,
         format="%.2f"
     )
@@ -59,20 +37,23 @@ with c3:
         "Meses Restantes", 
         min_value=1, 
         max_value=420, 
-        value=prazo_base, 
+        value=300,       # Prazo padrão inicial (25 anos)
         step=1
     )
 
-# Transforma a taxa percentual em decimal para os cálculos matemáticos
+# Transformação da taxa para o cálculo matemático (proporcional mensal)
 taxa_anual = taxa_anual_input / 100
 taxa_mensal = taxa_anual / 12
 
 # --- CÁLCULO DA PARCELA CONTRATUAL PRICE ---
-fator_potencia = (1 + taxa_mensal) ** prazo_restante
-parcela_fixa = saldo_devedor_atual * (taxa_mensal * fator_potencia) / (fator_potencia - 1)
+# PMT = PV * [i * (1 + i)^n] / [(1 + i)^n - 1]
+if saldo_devedor_atual > 0 and prazo_restante > 0:
+    fator_potencia = (1 + taxa_mensal) ** prazo_restante
+    parcela_fixa = saldo_devedor_atual * (taxa_mensal * fator_potencia) / (fator_potencia - 1)
+else:
+    parcela_fixa = 0.0
 
-# Painel Informativo Resumido
-st.info(f"Sua parcela fixa calculada para este cenário é de: **R$ {parcela_fixa:,.2f}**")
+st.info(f"Sua parcela fixa calculada para este cenário é de: **R$ {parcela_fixa:,.2f}** (sem seguros/taxas)")
 st.markdown("---")
 
 # --- ÁREA DE SIMULAÇÃO DE AMORTIZAÇÃO ---
@@ -87,6 +68,7 @@ def gerar_evolucao_price(saldo_inicial, pmt, taxa, meses):
         juros_mes = saldo * taxa
         amortizacao_mes = pmt - juros_mes
         
+        # Ajuste fino para a última parcela não gerar resíduos decimais
         if saldo - amortizacao_mes < 0 or mes == meses:
             amortizacao_mes = saldo
             saldo = 0.0
@@ -104,14 +86,15 @@ def gerar_evolucao_price(saldo_inicial, pmt, taxa, meses):
             break
     return pd.DataFrame(historico)
 
-if valor_amortizar > 0:
+if valor_amortizar > 0 and parcela_fixa > 0:
     if valor_amortizar >= saldo_devedor_atual:
         st.success("🎉 Com este valor você quita integralmente o saldo devedor!")
     else:
-        # Lógica de amortização Price (Prazo)
+        # Abate o valor direto do saldo devedor
         novo_saldo = saldo_devedor_atual - valor_amortizar
         
         try:
+            # Isola o número de parcelas restante mantendo a prestação fixa
             termo_log = 1 - (novo_saldo * taxa_mensal) / parcela_fixa
             
             if termo_log > 0:
@@ -119,7 +102,7 @@ if valor_amortizar > 0:
                 novo_prazo_estimado = round(novo_prazo_estimado)
                 parcelas_deletadas = prazo_restante - novo_prazo_estimado
                 
-                # Exibição do impacto imediato
+                # Exibição dos resultados de impacto
                 st.markdown("#### 🎯 Resultado da Simulação")
                 res1, res2 = st.columns(2)
                 with res1:
@@ -151,6 +134,6 @@ if valor_amortizar > 0:
                 st.dataframe(df_visual, use_container_width=True, hide_index=True)
                 
             else:
-                st.error("O valor inserido é muito alto para a estrutura de parcelas atual.")
+                st.error("O valor inserido gera uma inconsistência matemática para a estrutura atual.")
         except Exception as e:
-            st.error("Erro no recálculo financeiro. Revise os dados de entrada.")
+            st.error("Erro no recálculo financeiro. Revise os dados inseridos.")
