@@ -1,5 +1,4 @@
 import streamlit as st
-import math
 import pandas as pd
 
 st.set_page_config(page_title="Simulador Caixa Habitação", layout="wide")
@@ -12,13 +11,13 @@ col_menu, col_Painel = st.columns([1, 2], gap="large")
 with col_menu:
     st.markdown("### 📋 Configuração do Contrato")
     
-    # Alimentado com os dados exatos da imagem enviada
+    # Dados exatos da sua imagem
     saldo_devedor_atual = st.number_input(
         "Saldo Devedor Atual (R$)", 
         min_value=0.0, value=327639.45, step=1000.0, format="%.2f"
     )
     
-    # Assumindo uma taxa média praticada pela Caixa em contratos novos (ex: 9.5% a.a.)
+    # Taxa média Caixa (reajuste aqui se precisar calibrar mais)
     taxa_anual_input = st.number_input(
         "Taxa de Juros Anual (%)", 
         min_value=0.0, max_value=100.0, value=9.5, step=0.1, format="%.2f"
@@ -32,9 +31,10 @@ with col_menu:
     st.markdown("---")
     st.markdown("### 📉 Simular Amortização")
     
+    # Coloquei os 1000 reais que você usou na realidade
     valor_amortizar = st.number_input(
         "Quanto você gostaria de amortizar?", 
-        min_value=0.0, value=2950.00, step=50.0, format="%.2f"
+        min_value=0.0, value=1000.00, step=50.0, format="%.2f"
     )
     
     tipo_amortizacao = st.radio(
@@ -43,61 +43,63 @@ with col_menu:
         help="Prazo: Diminui o número de prestações restantes. Prestação: Diminui o valor mensal."
     )
     
-    # Seguros e taxas médias em background para compor a parcela real da Caixa
-    taxas_somadas = 45.00 + 15.00 + 25.00  # MIP + DFI + Taxa Adm
+    taxas_somadas = 45.00 + 15.00 + 25.00  # Seguros aproximados Caixa (MIP + DFI + Taxa)
 
-# --- Processamento Matemático ---
+# --- Processamento Matemático Simulado (Sem Logaritmo Propenso a Erros) ---
 taxa_mensal = (taxa_anual_input / 100) / 12
 
-# 1. Cálculo da Parcela Original
+# 1. Cálculo exato da parcela base (Price)
 if saldo_devedor_atual > 0 and prazo_restante > 0:
     fator_orig = (1 + taxa_mensal) ** prazo_restante
     pmt_original = saldo_devedor_atual * (taxa_mensal * fator_orig) / (fator_orig - 1)
 else:
     pmt_original = 0.0
 
-# 2. Lógica de Amortização
-novo_saldo = max(0.0, saldo_devedor_atual - valor_amortizar)
-
-# Inicializa variáveis do novo cenário
-novo_prazo_estimado = prazo_restante
-nova_pmt = pmt_original
-
-if valor_amortizar > 0 and pmt_original > 0:
-    if tipo_amortizacao == "Prazo":
-        # Mantém a prestação original e calcula o novo tempo necessário para zerar o novo saldo
-        try:
-            termo_log = 1 - (novo_saldo * taxa_mensal) / pmt_original
-            if termo_log > 0:
-                novo_prazo_estimado = -math.log(termo_log) / math.log(1 + taxa_mensal)
-                novo_prazo_estimado = round(novo_prazo_estimado)
-            else:
-                novo_prazo_estimado = 0
-        except:
-            novo_prazo_estimado = 0
+# 2. Função Simuladora de Linha de Tempo (Varredura)
+def rodar_cronograma(saldo_inicial, pmt_limite, taxa, reduzir_parcela, saldo_alvo_parcial=0):
+    saldo = saldo_inicial
+    meses_decorridos = 0
+    historico_saldos = []
+    
+    # Se for redução de parcela, recalculamos a PMT para o novo saldo
+    if reduzir_parcela and saldo_inicial > 0:
+        fator_novo = (1 + taxa) ** prazo_restante
+        pmt_fluxo = saldo_inicial * (taxa * fator_novo) / (fator_novo - 1)
     else:
-        # Reduzir Prestação: Mantém o tempo (prazo) e recalcula o valor da parcela para o novo saldo
-        fator_novo = (1 + taxa_mensal) ** prazo_restante
-        nova_pmt = novo_saldo * (taxa_mensal * fator_novo) / (fator_novo - 1)
+        pmt_fluxo = pmt_limite
 
-parcelas_eliminadas = prazo_restante - novo_prazo_estimado
-
-# Função simplificada apenas para alimentar o gráfico de linha com segurança
-def gerar_saldos_grafico(saldo_ini, meses, pmt_base, taxa):
-    saldo = saldo_ini
-    historico = []
-    for mes in range(1, meses + 1):
-        if saldo <= 0: break
+    while saldo > 0.01 and meses_decorridos < 600:  # Trava de segurança de 50 anos
+        meses_decorridos += 1
         juros_mes = saldo * taxa
-        pmt_atual = pmt_base if pmt_base < (saldo + juros_mes) else (saldo + juros_mes)
-        amortizacao_tabela = pmt_atual - juros_mes
-        saldo = max(0.0, saldo - amortizacao_tabela)
-        historico.append({"Mês": mes, "Saldo Devedor": saldo})
-    return pd.DataFrame(historico)
+        
+        # Garante que a parcela não pague mais do que a dívida restante
+        pmt_atual = pmt_fluxo if pmt_fluxo < (saldo + juros_mes) else (saldo + juros_mes)
+        amortizacao_mes = pmt_atual - juros_mes
+        
+        saldo = max(0.0, saldo - amortizacao_mes)
+        historico_saldos.append({"Mês": meses_decorridos, "Saldo Devedor": saldo})
+        
+    return meses_decorridos, pmt_fluxo, historico_saldos
 
-# Gera dados para o gráfico de linhas
-df_original = gerar_saldos_grafico(saldo_devedor_atual, prazo_restante, pmt_original, taxa_mensal)
-df_simulado = gerar_saldos_grafico(novo_saldo, novo_prazo_estimado, nova_pmt, taxa_mensal)
+# --- Geração dos Cenários ---
+# Cenário A: Contrato Original
+prazo_real_orig, pmt_real_orig, saldos_orig = rodar_cronograma(saldo_devedor_atual, pmt_original, taxa_mensal, False)
+
+# Cenário B: Com o abatimento aplicado hoje
+saldo_apos_amortizacao = max(0.0, saldo_devedor_atual - valor_amortizar)
+is_reduzir_parcela = (tipo_amortizacao == "Prestação")
+
+prazo_real_sim, pmt_real_sim, saldos_sim = rodar_cronograma(
+    saldo_apos_amortizacao, pmt_original, taxa_mensal, is_reduzir_parcela
+)
+
+# Ajuste do prazo simulado para refletir o contrato atual
+if tipo_amortizacao == "Prazo":
+    novo_prazo_final = prazo_real_sim
+    parcelas_eliminadas = prazo_restante - novo_prazo_final
+else:
+    novo_prazo_final = prazo_restante
+    parcelas_eliminadas = 0
 
 # --- Painel de Resultados (Direita) ---
 with col_Painel:
@@ -107,36 +109,16 @@ with col_Painel:
     with res1:
         st.metric("Prazo Atual", f"{prazo_restante} meses")
     with res2:
-        st.metric("Novo Prazo", f"{novo_prazo_estimado} meses", 
+        st.metric("Novo Prazo", f"{novo_prazo_final} meses", 
                   delta=f"-{parcelas_eliminadas} meses" if parcelas_eliminadas > 0 else None, 
                   delta_color="inverse")
         
     st.markdown("---")
     st.markdown("### 📊 Diagnóstico Financeiro")
     
-    # Estimativa simples de economia de juros baseada no saldo e prestações
-    juros_estimados_orig = (pmt_original * prazo_restante) - saldo_devedor_atual
-    juros_estimados_sim = (nova_pmt * novo_prazo_estimado) - novo_saldo
-    economia_juros = max(0.0, juros_estimados_orig - juros_estimados_sim)
-    
-    m1, m2 = st.columns(2)
-    m1.metric("Próxima Parcela Total", f"R$ {nova_pmt + taxas_somadas:,.2f}", 
-              delta=f"R$ {(nova_pmt - pmt_original):,.2f}" if tipo_amortizacao == "Prestação" else None,
-              delta_color="inverse")
-    m2.metric("Economia Estimada de Juros", f"R$ {economia_juros:,.2f}")
-    
-    st.info(f"📋 **Nota sobre encargos:** O valor da parcela inclui uma estimativa de R$ {taxas_somadas:,.2f} referente a seguros (MIP/DFI) e taxa de administração de contrato da Caixa.")
-    
-    # Gráfico de Evolução
-    st.markdown("---")
-    st.markdown("### 📈 Curva de Queda da Dívida")
-    
-    if not df_original.empty:
-        df_grafico = pd.DataFrame(index=range(1, prazo_restante + 1))
-        df_grafico["Contrato Original"] = df_original.set_index("Mês")["Saldo Devedor"]
-        if not df_simulado.empty:
-            df_grafico["Com Amortização"] = df_simulado.set_index("Mês")["Saldo Devedor"]
-        df_grafico.fillna(0, inplace=True)
-        st.line_chart(df_grafico)
+    # Cálculo de juros por soma real das parcelas simuladas
+    juros_totais_orig = (pmt_original * prazo_restante) - saldo_devedor_atual
+    if tipo_amortizacao == "Prazo":
+        juros_totais_sim = (pmt_original * novo_prazo_final) - saldo_apos_amortizacao
     else:
-        st.caption("Insira os dados do contrato para renderizar o gráfico.")
+        j
